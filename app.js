@@ -155,6 +155,8 @@ app.get("/", (req, res) => {
     res.send("everything nice..");
 })
 
-server.listen(3001, () => {
-    console.log("server started successfully");
+const port = process.env.PORT;
+
+server.listen(port, () => {
+    console.log("server started successfully on port ", port);
 })
