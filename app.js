@@ -32,7 +32,6 @@ const whoShouldDraw = (userlist) => {
         if (userlist[i].hasDrawn === false) {
             let wordIndex = Math.floor(Math.random() * words.length);
             guessWord = words[wordIndex];
-            users[i].hasGuessed = true;
             io.emit("who should draw", { id: users[i].id, word: guessWord });
             io.emit("roundSetter", roundNumber);
             io.emit("receiveDrawingData", { elements: [] });
@@ -86,7 +85,6 @@ io.on("connection", (socket) => {
             } else {
                 users.forEach((element) => element.hasDrawn = false);
                 ++roundNumber;
-                console.log("round number ", roundNumber);
                 whoShouldDraw(users);
             }
 
@@ -106,9 +104,12 @@ io.on("connection", (socket) => {
                     data.message = "this user has guessed the word";
                     io.emit("user guessed", users[i].id);
 
-                    const hasGuessed = users.every((element) => element.hasGuessed === true);
-                    console.log("has guessed condition: ", hasGuessed);
-                    if (hasGuessed) { io.emit("round hoga ba"); }
+                    let checkIsGuessed = 0;
+                    users.forEach(element => { if (element.hasGuessed === true) { checkIsGuessed++ } });
+                    if ((users.length - 1) === checkIsGuessed) {
+                        io.emit("next player", { name: "taha" });
+                        console.log("next drawer please");
+                    }
                 }
             }
         }
@@ -157,6 +158,6 @@ app.get("/", (req, res) => {
 
 const port = process.env.PORT;
 
-server.listen(port, () => {
-    console.log("server started successfully on port ", port);
+server.listen(3001, () => {
+    console.log("server started successfully ",);
 })
