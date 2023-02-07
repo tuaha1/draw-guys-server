@@ -8,7 +8,12 @@ const cors = require("cors");
 app.use(cors());
 
 const { Server } = require("socket.io");
-const words = require("./words");
+
+const getClients = require("./helper/handleClients");
+const whoShouldDraw = require("./helper/whoShouldDraw");
+const checkGuessMessage = require("./helper/checkGuessMessage");
+const { getRound, resetRound, increaseRound } = require("./helper/roundNumber");
+const { getGuessWord, setGuessWord } = require("./helper/guessWord");
 
 const io = new Server(server, {
     cors: {
@@ -17,105 +22,85 @@ const io = new Server(server, {
     }
 });
 
-let users = [];
-let guessWord = "";
-let roundNumber = 1;
-
-const whoShouldDraw = (userlist) => {
-
-    if (userlist.length === 1) {
-        io.emit("who should draw", { id: users[0].id, word: "wait for some users to join" });
-        return;
-    }
-
-    for (let i = 0; i < userlist.length; i++) {
-        if (userlist[i].hasDrawn === false) {
-            let wordIndex = Math.floor(Math.random() * words.length);
-            guessWord = words[wordIndex];
-            io.emit("who should draw", { id: users[i].id, word: guessWord });
-            io.emit("roundSetter", roundNumber);
-            io.emit("receiveDrawingData", { elements: [] });
-            break;
-        }
-    }
-}
-
 io.on("connection", (socket) => {
 
-    socket.on("nickname", (data) => {
-        const user = { id: socket.id, nickname: data, hasDrawn: false, score: 0, hasGuessed: false };
+    socket.on("nickname", async (data) => {
+        socket.nickname = data;
+        socket.hasDrawn = false;
+        socket.hasGuessed = false;
+        socket.score = 0;
 
-        if (!users.includes(user)) {
-            users.push(user);
-        }
+        console.log(data);
 
-        whoShouldDraw(users);
-        io.emit("roundSetter", roundNumber);
-        io.emit("receive nicknames", users);
+
+        whoShouldDraw(io, getRound());
+        // const clients = await getClients(io);
+        // if (clients.length <= 2) {
+        //     whoShouldDraw(io);
+        // } else {
+        //     io.emit("receive nicknames", clients);
+        // }
+
     })
 
-    socket.on("drawing done", data => {
+    socket.on("drawing done", async (data) => {
 
-        users.forEach(element => element.hasGuessed = false);
-        io.emit("receive nicknames", users);
+        io.emit("receive guess", { name: 'the word was', message: getGuessWord() });
 
-        io.emit("enable chatbox");
-        console.log("drawing done by: ", data);
-        users.forEach((element) => {
-            if (element.id === data) {
-                element.hasDrawn = true;
-            }
-        })
+        console.log("drawing done hoga soch", data);
 
-        let checkisDrawn = users.every((element) => element.hasDrawn === true);
+        getClients.setHasGuessedToFalse(io);
+        getClients.drawingDone(io, data);
+
+        const clients = await getClients(io);
+        let checkisDrawn = clients.every((element) => element.hasDrawn === true);
         if (checkisDrawn) {
-            io.emit("roundSetter", roundNumber);
-            if (roundNumber === 3) {
-                roundNumber = 1;
-                console.log("restart the game");
-                let scores = users.sort((a, b) => b.score - a.score);
-                io.emit("round finished", scores);
+            if (getRound() === 3) {
+                const score = clients.map((element) => { return { nickname: element.nickname, score: element.score } });
+                io.emit("round finished", score);
                 setTimeout(() => {
+                    resetRound();
+                    getClients.resetScore(io);
+                    getClients.setHasDrawnToFalse(io);
+                    setGuessWord();
+                    whoShouldDraw(io, getRound());
                     io.emit("round start");
-                    users.forEach((element) => element.score = 0);
-                    users.forEach((element) => element.hasDrawn = false);
-                    whoShouldDraw(users);
-                    io.emit("receive nicknames", users);
                 }, 5000);
             } else {
-                users.forEach((element) => element.hasDrawn = false);
-                ++roundNumber;
-                whoShouldDraw(users);
+                getClients.setHasDrawnToFalse(io);
+                increaseRound();
+                setGuessWord(io);
+                whoShouldDraw(io, getRound());
             }
-
-        } else if (users.length >= 2) {
-            whoShouldDraw(users);
+        } else {
+            setGuessWord();
+            whoShouldDraw(io, getRound());
         }
 
+        io.emit("enable chatbox");
+        io.emit("receive nicknames", await getClients(io));
     })
 
-    socket.on("guess message", (data) => {
-        for (let i = 0; i < users.length; i++) {
-            if (users[i].id === data.id) {
-                data.name = users[i].nickname;
-                if (data.message === guessWord) {
-                    users[i].score += 50;
-                    users[i].hasGuessed = true;
-                    data.message = "this user has guessed the word";
-                    io.emit("user guessed", users[i].id);
+    socket.on("guess message", async (data) => {
 
-                    let checkIsGuessed = 0;
-                    users.forEach(element => { if (element.hasGuessed === true) { checkIsGuessed++ } });
-                    if ((users.length - 1) === checkIsGuessed) {
-                        io.emit("next player", { name: "taha" });
-                        console.log("next drawer please");
-                    }
-                }
-            }
+        const clients = await getClients(io);
+        const messageData = checkGuessMessage(data, clients);
+
+        if (messageData.id) {
+            getClients.updateClientGuess(io, messageData);
+            io.emit("user guessed", messageData.id);
         }
 
-        io.emit("receive nicknames", users);
-        io.emit("receive guess", data);
+        // const allClientsGuessed = await getClients(io);
+        // let checkIsGuessed = 0;
+        // allClientsGuessed.forEach((element) => { if (element.hasGuessed) { checkIsGuessed++ } });
+        // if ((allClientsGuessed.length - 1) === checkIsGuessed) {
+        //     io.emit("next player");
+        //     return;
+        // }
+
+        io.emit("receive nicknames", await getClients(io));
+        io.emit("receive guess", messageData);
     })
 
     socket.on("time data", (data) => {
@@ -137,17 +122,18 @@ io.on("connection", (socket) => {
         io.emit("receiveDrawingData", { elements: [] });
     })
 
-    socket.on("disconnect", () => {
-        const index = users.findIndex(item => item.id === socket.id);
-        users.splice(index, 1);
+    socket.on("disconnect", async () => {
 
-        console.log("how many users are there ma: ", users.length);
-        if (users.length <= 1) {
-            roundNumber = 1;
-            whoShouldDraw(users);
+        const clients = await getClients(io);
+
+        if (clients.length === 1) {
+            resetRound();
+            whoShouldDraw(io, getRound());
+        } else {
+            whoShouldDraw(io, getRound());
         }
 
-        io.emit("receive nicknames", users);
+        io.emit("receive nicknames", clients);
     })
 
 })
@@ -158,6 +144,6 @@ app.get("/", (req, res) => {
 
 const port = process.env.PORT;
 
-server.listen(port, () => {
+server.listen(3001, () => {
     console.log("server started successfully ",);
 })
