@@ -144,6 +144,6 @@ app.get("/", (req, res) => {
 
 const port = process.env.PORT;
 
-server.listen(3001, () => {
-    console.log("server started successfully ",);
+server.listen(port, () => {
+    console.log("server started successfully ", port);
 })
