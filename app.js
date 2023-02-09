@@ -45,6 +45,7 @@ io.on("connection", (socket) => {
 
     socket.on("drawing done", async (data) => {
 
+        io.emit("receiveDrawingData", { elements: [] });
         io.emit("receive guess", { name: 'the word was', message: getGuessWord() });
 
         console.log("drawing done hoga soch", data);
